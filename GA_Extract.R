@@ -21,39 +21,58 @@ cuentas <- ga.cuentas %>%
   filter(grepl("bestbuy",accountName,ignore.case = TRUE))
 cuentas
 #Colocar el numero de fila de la vista requerida
-view.id <- cuentas$viewId[7]
+viewId <- cuentas$viewId[7]
 
 # Configuraciones Globales ---------------------------------------------------------
 #Fechas
-start.date <- "2019-01-01"
-end.date <- "2019-12-31"
+startDate <- "2019-01-01"
+endDate <- "2019-12-31"
 #TRUE para dejar el sampleo de la data y FALSE para desactivarlo.
 sampling <- FALSE
 
 # Extracción de la Data de la API de Google Analytics -------------------------
-## create filters on dimensions
-df <- dim_filter("campaign","REGEX","^fb.*vendor",not = FALSE,caseSensitive = FALSE)
-df2 <- dim_filter("campaign","REGEX","citibanamex|cobranded",not = TRUE,caseSensitive = FALSE)
+## Crear los filtros en las dimensiones
+df1 <- dim_filter("campaign","REGEX","^(fb|aw|bn|bg|ma)",not = FALSE,caseSensitive = FALSE)
 
-## construct filter objects
-fc <- filter_clause_ga4(list(df, df2), operator = "AND")
+## Construir la clusala de los filtros
+fc <- filter_clause_ga4(list(df1), operator = "AND")
 
-#Primera llamada a la API
+# Extraer la data
 data = google_analytics(
-  viewId = view.id,
-  date_range = c(start.date,
-                 end.date),
+  viewId = viewId,
+  date_range = c(startDate,
+                 endDate),
   metrics = c("sessions","transactions","transactionRevenue","adCost"),
-  dimensions = c("date","campaign"),
+  dimensions = c("date","adwordsCustomerID","campaign"),
   dim_filter = fc,
   max = -1,
   anti_sample = sampling,
 )
 head(data)
 
+performanceAW <- data %>% 
+  filter(grepl("6546925640|3671871019|7904158796|3671871019", adwordsCustomerID, ignore.case = TRUE)) %>% 
+  filter(!grepl("vendor", campaign, ignore.case = TRUE))
+
+performanceFB <- data %>% 
+  filter(grepl("^fb", campaign, ignore.case = TRUE)) %>%
+  filter(!grepl("brn|vendor", campaign, ignore.case = TRUE))
+
+performanceMA <- data %>% 
+  filter(grepl("^(bn|bg|ma)", campaign, ignore.case = TRUE))
+
+brandingAW <- data %>% 
+  filter(grepl("3420793172|3558320754", adwordsCustomerID, ignore.case = TRUE)) %>%
+  filter(grepl("brn", campaign, ignore.case = TRUE)) %>% 
+  filter(!grepl("citibanamex|cobranded", campaign, ignore.case = TRUE))
+
+brandingFB <- data %>%
+  filter(grepl("^fb", campaign, ignore.case = TRUE)) %>%
+  filter(!grepl("vendor|citibanamex|cobranded", campaign, ignore.case = TRUE))
+  
+
 # Escribir la data en un google sheets
 (ss <-  sheets_create(
-  "sheets-create-demo-6",
-  sheets = list(iris = head(iris), mtcars = head(mtcars))
+  "TestRstudio",
+  sheets = list(performance = data1)
 ))
-
