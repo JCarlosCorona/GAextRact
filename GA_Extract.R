@@ -70,9 +70,18 @@ brandingFB <- data %>%
   filter(grepl("^fb", campaign, ignore.case = TRUE)) %>%
   filter(!grepl("vendor|citibanamex|cobranded", campaign, ignore.case = TRUE))
   
+vendorsFB <- data %>%
+  filter(grepl("(^fb).*(vendor)", campaign, ignore.case = TRUE)) %>%
+  filter(!grepl("citibanamex|cobranded", campaign, ignore.case = TRUE))
+
 
 # Escribir la data en un google sheets
 (ss <-  sheets_create(
-  "TestRstudio",
-  sheets = list(performance = data1)
+  "inversion2019",
+  sheets = list(performanceAW = performanceAW,
+                performanceFB = performanceFB,
+                performanceMA = performanceMA,
+                brandingAW = brandingAW,
+                brandingFB = brandingFB,
+                vendorsFB = vendorsFB)
 ))
