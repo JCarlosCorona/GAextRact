@@ -3,14 +3,14 @@ if (!require("pacman"))
   install.packages("pacman")
 pacman::p_load("googleAnalyticsR",
                "lubridate",
-               "fpp",
-               "forecast",
                "ggplot2",
-               "gridExtra",
-               "data.table",
-               "formattable",
-               "tidyr",
-               "tidyverse")
+               "tidyverse",
+               "devtools")
+# install.packages("devtools")
+devtools::install_github("tidyverse/googlesheets4")
+3
+library(googlesheets4)
+
 ga_auth()
 1
 #ID de la vista de GA.
@@ -50,3 +50,10 @@ data = google_analytics(
   anti_sample = sampling,
 )
 head(data)
+
+# Escribir la data en un google sheets
+(ss <-  sheets_create(
+  "sheets-create-demo-6",
+  sheets = list(iris = head(iris), mtcars = head(mtcars))
+))
+
