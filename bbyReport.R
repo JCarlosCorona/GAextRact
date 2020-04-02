@@ -9,7 +9,8 @@ pacman::p_load("googleAnalyticsR",
                "fbRads",
                "googlesheets4",
                "rlist",
-               "RJSONIO")
+               "RJSONIO",
+               "zoo")
 
 # Configuraciones Globales ----
 #Fechas
@@ -57,7 +58,8 @@ awData <- mutate(awData,Medio = "Google Ads")
 
 # Extracción de la Data de la API de Facebook Ads con su data de Google Analytics----
 # Colocar el token para la app de FBads
-tkn <- "EAAEY7njrS3IBADEHKurmJ8R4HucBkRAQyawaA3LEGuvOO1aa92YiVa6S1h8i6h15T3EypHs0i8vsudEFdJNk2DIYTZB39jvSFQuZCaB8BnE8McBjryiZAqedoRbwa0NOTp7WkXIfK4HVhBgIDSwpaDjRSx3udhTReMda6AELKZAPoLed10wQfGrZCPMbx0Abg6e2rObZBpRwZDZD"
+tkn <- rstudioapi::askForPassword("Colocar el Token de la app de Facebook")
+
 
 # Colocar los ID de las cuentas de FB
 fbAccounts <- c("2210499132335057","278997015949788","502688596903032","1701073816614460")
@@ -68,7 +70,7 @@ for (i in 1:length(fbAccounts)) {
   fbad_init(fbAccounts[i], tkn, version = "6.0")
   
   assign(paste("fb",fbAccounts[i] , sep = "") , value = fb <- fb_insights(level = 'campaign',
-                                                                          date_preset = 'last_3d', 
+                                                                          date_preset = 'last_year', 
                                                                           job_type = "async",
                                                                           time_increment = "1",
                                                                           fields = toJSON(c('campaign_name','spend', 'clicks'))))
@@ -93,7 +95,7 @@ fb$adClicks <- as.numeric(fb$adClicks)
 
 # Extraer la data de GA para FB
 ## Crear los filtros en las dimensiones
-df1FB <- dim_filter("campaign","REGEX","^(fb|sm)",not = FALSE,caseSensitive = FALSE)
+df1FB <- dim_filter("campaign","REGEX","^(fb|sm)(_|-)",not = FALSE,caseSensitive = FALSE)
 
 ## Construir la clusala de los filtros
 fcFB <- filter_clause_ga4(list(df1FB), operator = "AND")
@@ -112,17 +114,22 @@ gaDataFB = google_analytics(
 head(gaDataFB)
 
 # Hacer el merge de FB con GA
-fbData <- merge(fb, gaDataFB, by = c("date", "campaign"))
+fbData <- full_join(fb, gaDataFB, by = c("date", "campaign"))
+fbData[is.na(fbData)] <- 0
 fbData <- mutate(fbData, Medio = "Facebook Ads")
 
-# Extracción de la Data de la API de Microsoft Ads -----
-#Extraer la data de Microsoft Ads
-
-
-
+# Obtener la data de Microsoft Ads -----
+#Extraer la data de Microsoft Ads de un sheets con Supermetrics
+ma <- read_sheet("https://docs.google.com/spreadsheets/d/1cOW2CNGyuJpYMsm830ojkTbS5Z3ll9SHxCbGkD7SxOk")
+ma <- ma %>% 
+  select(date = Date, campaign = `Campaign name`, adCost = Cost, adClicks = Clicks)
+ma$date <- as.Date(ma$date)
+ma$adCost <- as.numeric(ma$adCost)
+ma$adClicks <- as.numeric(ma$adClicks)
+  
 # Extraer la data de GA para MA
 ## Crear los filtros en las dimensiones
-df1MA <- dim_filter("campaign","REGEX","^(ma|bn|bg)",not = FALSE,caseSensitive = FALSE)
+df1MA <- dim_filter("campaign","REGEX","^(ma|bn|bg)(_|-)",not = FALSE,caseSensitive = FALSE)
 
 ## Construir la clusala de los filtros
 fcMA <- filter_clause_ga4(list(df1MA), operator = "AND")
@@ -141,36 +148,48 @@ gaDataMA = google_analytics(
 head(gaDataMA)
 
 # Hacer el merge de MA con GA
-maData <- merge(ma, gaDataMA, by = c("date", "campaign"))
+maData <- full_join(ma, gaDataMA, by = c("date", "campaign"))
+maData[is.na(maData)] <- 0
 maData <- mutate(maData, Medio = "Microsoft Ads")
 
 # Juntar todos los medios ----
-allData <- do.call("rbind", list(awData, fbData))
+allData <- do.call("rbind", list(awData, fbData, maData))
+
 
 # Clasificar las campañas ----
 fullReport <- allData %>% mutate(UNE = case_when(
-  grepl("_(vendor)_?", campaign, ignore.case = TRUE) ~ "VENDOR",  # VENDOR
-  grepl("_(BRANDING|casa|azul)_?", campaign, ignore.case = TRUE) ~ "AWARENES", # AWARENES
-  grepl("_(Plaza|cancun|cuernavaca|leon|merida|morelia|puebla|queretaro|san.*luisp|veracruz|acoxpa|chihuahua|andares|buenavista|citadel|ciudadela|contry|cuautitlan|ecatepec|galerias|interlomas|linda.*vista|monterrey|mundo.*e|pedregal|polanco|santa_fe|tlaquepaque|universidad|léon)_?", campaign, ignore.case = TRUE) ~ "AWARENES", # AWARENES
+  grepl("(_|-)(vendor)(_|-)?", campaign, ignore.case = TRUE) ~ "VENDOR",  # VENDOR
+  grepl("(_|-)(BRANDING|casa|azul)(_|-)?", campaign, ignore.case = TRUE) ~ "AWARENES", # AWARENES
+  grepl("(_|-)(Plaza|cancun|cuernavaca|leon|merida|morelia|puebla|queretaro|san.*luisp|veracruz|acoxpa|chihuahua|andares|buenavista|citadel|ciudadela|contry|cuautitlan|ecatepec|galerias|interlomas|linda.*vista|monterrey|mundo.*e|pedregal|polanco|santa_fe|tlaquepaque|universidad|léon)(_|-)?", campaign, ignore.case = TRUE) ~ "AWARENES", # AWARENES
+  grepl("(cobranding|citi)", campaign, ignore.case = TRUE) ~ "AWARENES",
   grepl(".*", campaign, ignore.case = TRUE) ~ "PERFORMANCE")) # PERFORMANCE
 
-#Agrupar Performance por mes
-fullReport %>% 
-  filter(grepl("PERFORMANCE",UNE)) %>% 
-  select(date,adCost,transactionRevenue) %>% 
+#Agrupar data por tipo de negocio y por mes
+performance <- fullReport %>% 
+  filter(grepl("PERFORMANCE",UNE)) %>%
+  select(date,adCost,sessions,transactionRevenue) %>% 
   mutate(Month = month(date)) %>% 
   group_by(Month) %>% 
-  summarise(sum(adCost),sum(transactionRevenue)) %>% 
-  View()
-  
+  summarise(Inversion = sum(adCost), Sesiones = sum(sessions),Revenue = sum(transactionRevenue))
+
+branding <- fullReport %>% 
+  filter(grepl("AWARENES",UNE)) %>%
+  select(date,adCost,sessions,transactionRevenue) %>% 
+  mutate(Month = month(date)) %>% 
+  group_by(Month) %>% 
+  summarise(Inversion = sum(adCost), Sesiones = sum(sessions),Revenue = sum(transactionRevenue))
+
+vendor <- fullReport %>% 
+  filter(grepl("VENDOR",UNE)) %>%
+  select(date,adCost,sessions,transactionRevenue) %>% 
+  mutate(Month = month(date)) %>% 
+  group_by(Month) %>% 
+  summarise(Inversion = sum(adCost), Sesiones = sum(sessions),Revenue = sum(transactionRevenue))
+
 # Escribir la data en un google sheets ----
 (ss <-  sheets_create(
   "inversion2019",
-  sheets = list(performanceAW = performanceAW,
-                performanceFB = performanceFB,
-                performanceMA = performanceMA,
-                brandingAW = brandingAW,
-                brandingFB = brandingFB,
-                vendorsFB = vendorsFB)
+  sheets = list(performance = performance,
+                branding = branding,
+                vendor = vendor)
 ))
-
